@@ -763,7 +763,7 @@ class StudioCourseSelectorGUI:
             self.log(f"导入配置失败: {str(exc)}", "ERROR")
             messagebox.showerror("错误", f"导入配置失败: {str(exc)}")
     def add_task(self):
-        dialog = StudioTaskDialog(self.root, self.selector)
+        dialog = StudioTaskDialog(self.root, self.selector, self.palette, self.fonts)
         self.root.wait_window(dialog.dialog)
         if dialog.result:
             elect_id, withdraw_id = dialog.result
@@ -936,35 +936,77 @@ class StudioCourseSelectorGUI:
 class StudioTaskDialog:
     """添加任务对话框"""
 
-    def __init__(self, parent, selector):
+    def __init__(self, parent, selector, palette=None, fonts=None):
         self.selector = selector
         self.result = None
 
+        self.palette = palette or {
+            "bg": "#F0FDFA",
+            "card": "#F8FFFE",
+            "border": "#A7F3D0",
+            "text": "#134E4A",
+            "muted": "#2C7A7B",
+            "primary": "#0D9488",
+            "primary_hover": "#0F766E",
+        }
+        self.fonts = fonts or {
+            "title": ctk.CTkFont(family="Fira Sans", size=20, weight="bold"),
+            "section": ctk.CTkFont(family="Fira Sans", size=16, weight="bold"),
+            "body": ctk.CTkFont(family="Fira Sans", size=13),
+            "small": ctk.CTkFont(family="Fira Sans", size=12),
+        }
+
+        dialog_w, dialog_h = 640, 520
         self.dialog = ctk.CTkToplevel(parent)
         self.dialog.title("添加选课任务")
-        self.dialog.geometry("640x420")
+        self.dialog.geometry(f"{dialog_w}x{dialog_h}")
+        self.dialog.minsize(560, 480)
+        self.dialog.configure(fg_color=self.palette["bg"])
         self.dialog.transient(parent)
         self.dialog.grab_set()
 
         self.dialog.update_idletasks()
-        x = (self.dialog.winfo_screenwidth() // 2) - (640 // 2)
-        y = (self.dialog.winfo_screenheight() // 2) - (420 // 2)
+        x = (self.dialog.winfo_screenwidth() // 2) - (dialog_w // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (dialog_h // 2)
         self.dialog.geometry(f"+{x}+{y}")
 
-        title = ctk.CTkLabel(
-            self.dialog,
-            text="添加选课任务",
-            font=ctk.CTkFont(family="Fira Sans", size=20, weight="bold"),
-        )
-        title.pack(pady=(24, 12))
+        header = ctk.CTkFrame(self.dialog, fg_color="transparent")
+        header.pack(fill="x", padx=30, pady=(24, 12))
 
-        content_frame = ctk.CTkFrame(self.dialog)
-        content_frame.pack(padx=30, pady=20, fill="both", expand=True)
+        title = ctk.CTkLabel(
+            header,
+            text="添加选课任务",
+            font=self.fonts["title"],
+            text_color=self.palette["text"],
+        )
+        title.pack(anchor="w")
+
+        subtitle = ctk.CTkLabel(
+            header,
+            text="填写课程 ID 后点击确定加入任务清单",
+            font=self.fonts["small"],
+            text_color=self.palette["muted"],
+        )
+        subtitle.pack(anchor="w", pady=(2, 0))
+
+        # 按钮行先以 side="bottom" 占位，保证无论内容多高都始终可见
+        btn_frame = ctk.CTkFrame(self.dialog, fg_color="transparent")
+        btn_frame.pack(side="bottom", fill="x", padx=30, pady=(0, 20))
+
+        content_frame = ctk.CTkFrame(
+            self.dialog,
+            fg_color=self.palette["card"],
+            corner_radius=16,
+            border_width=1,
+            border_color=self.palette["border"],
+        )
+        content_frame.pack(padx=30, pady=(0, 16), fill="both", expand=True)
 
         type_label = ctk.CTkLabel(
             content_frame,
             text="任务类型",
-            font=ctk.CTkFont(family="Fira Sans", size=14, weight="bold"),
+            font=self.fonts["section"],
+            text_color=self.palette["text"],
         )
         type_label.pack(anchor="w", padx=20, pady=(20, 8))
 
@@ -977,6 +1019,11 @@ class StudioTaskDialog:
             text="选课",
             variable=self.task_type,
             value="elect",
+            font=self.fonts["body"],
+            text_color=self.palette["text"],
+            fg_color=self.palette["primary"],
+            hover_color=self.palette["primary_hover"],
+            border_color=self.palette["border"],
         )
         elect_radio.pack(side="left", padx=(0, 20))
 
@@ -985,13 +1032,19 @@ class StudioTaskDialog:
             text="换课",
             variable=self.task_type,
             value="exchange",
+            font=self.fonts["body"],
+            text_color=self.palette["text"],
+            fg_color=self.palette["primary"],
+            hover_color=self.palette["primary_hover"],
+            border_color=self.palette["border"],
         )
         exchange_radio.pack(side="left")
 
         elect_label = ctk.CTkLabel(
             content_frame,
             text="要选的课程ID",
-            font=ctk.CTkFont(family="Fira Sans", size=13),
+            font=self.fonts["body"],
+            text_color=self.palette["text"],
         )
         elect_label.pack(anchor="w", padx=20, pady=(20, 6))
 
@@ -999,13 +1052,17 @@ class StudioTaskDialog:
             content_frame,
             placeholder_text="输入课程ID",
             height=40,
+            fg_color="#FFFFFF",
+            border_color=self.palette["border"],
+            text_color=self.palette["text"],
         )
         self.elect_entry.pack(fill="x", padx=20, pady=(0, 10))
 
         withdraw_label = ctk.CTkLabel(
             content_frame,
             text="要退的课程ID (换课时必填)",
-            font=ctk.CTkFont(family="Fira Sans", size=13),
+            font=self.fonts["body"],
+            text_color=self.palette["text"],
         )
         withdraw_label.pack(anchor="w", padx=20, pady=(10, 6))
 
@@ -1013,20 +1070,21 @@ class StudioTaskDialog:
             content_frame,
             placeholder_text="输入要退的课程ID",
             height=40,
+            fg_color="#FFFFFF",
+            border_color=self.palette["border"],
+            text_color=self.palette["text"],
         )
         self.withdraw_entry.pack(fill="x", padx=20, pady=(0, 10))
 
         hint_label = ctk.CTkLabel(
             content_frame,
             text="提示: 选课只需填写要选课程ID，换课需要同时填写要选和要退课程ID。",
-            font=ctk.CTkFont(family="Fira Sans", size=12),
-            text_color="#64748B",
+            font=self.fonts["small"],
+            text_color=self.palette["muted"],
             wraplength=520,
             justify="left",
         )
-        hint_label.pack(pady=(10, 10))
-        btn_frame = ctk.CTkFrame(self.dialog, fg_color="transparent")
-        btn_frame.pack(pady=(0, 20))
+        hint_label.pack(anchor="w", padx=20, pady=(10, 16))
 
         ok_btn = ctk.CTkButton(
             btn_frame,
@@ -1034,11 +1092,12 @@ class StudioTaskDialog:
             command=self.ok,
             width=140,
             height=40,
-            fg_color="#0D9488",
-            hover_color="#0F766E",
+            fg_color=self.palette["primary"],
+            hover_color=self.palette["primary_hover"],
             text_color="#FFFFFF",
+            font=self.fonts["body"],
         )
-        ok_btn.pack(side="left", padx=10)
+        ok_btn.pack(side="right", padx=(10, 0))
 
         cancel_btn = ctk.CTkButton(
             btn_frame,
@@ -1048,10 +1107,11 @@ class StudioTaskDialog:
             height=40,
             fg_color="transparent",
             border_width=1,
-            border_color="#A7F3D0",
-            text_color="#0F172A",
+            border_color=self.palette["border"],
+            text_color=self.palette["text"],
+            font=self.fonts["body"],
         )
-        cancel_btn.pack(side="left", padx=10)
+        cancel_btn.pack(side="right", padx=(0, 0))
 
     def ok(self):
         elect_id = self.elect_entry.get().strip()
