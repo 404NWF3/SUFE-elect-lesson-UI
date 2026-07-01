@@ -467,6 +467,18 @@ class StudioCourseSelectorGUI:
         )
         self.cookies_entry.grid(row=0, column=1, padx=(0, 12), pady=8, sticky="ew")
 
+        self.fetch_cookies_btn = ctk.CTkButton(
+            form_frame,
+            text="浏览器获取",
+            command=self.fetch_cookies_via_browser,
+            height=36,
+            width=110,
+            fg_color=self.palette["primary"],
+            hover_color=self.palette["primary_hover"],
+            text_color="#FFFFFF",
+        )
+        self.fetch_cookies_btn.grid(row=0, column=2, pady=8, sticky="w")
+
         profile_label = ctk.CTkLabel(
             form_frame,
             text="Profile ID",
@@ -485,6 +497,25 @@ class StudioCourseSelectorGUI:
             width=200,
         )
         self.profile_id_entry.grid(row=1, column=1, padx=(0, 12), pady=8, sticky="w")
+
+        open_time_label = ctk.CTkLabel(
+            form_frame,
+            text="开放时间",
+            font=self.fonts["body"],
+            text_color=self.palette["text"],
+        )
+        open_time_label.grid(row=2, column=0, padx=(0, 12), pady=8, sticky="w")
+
+        self.open_time_entry = ctk.CTkEntry(
+            form_frame,
+            placeholder_text="格式: YYYY-MM-DD HH:MM",
+            height=36,
+            fg_color="#FFFFFF",
+            border_color=self.palette["border"],
+            text_color=self.palette["text"],
+            width=200,
+        )
+        self.open_time_entry.grid(row=2, column=1, padx=(0, 12), pady=8, sticky="w")
 
         actions = ctk.CTkFrame(card, fg_color="transparent")
         actions.grid(row=2, column=0, padx=20, pady=(0, 16), sticky="w")
@@ -628,7 +659,7 @@ class StudioCourseSelectorGUI:
 
         action_frame = ctk.CTkFrame(card, fg_color="transparent")
         action_frame.grid(row=1, column=0, padx=20, pady=(0, 16), sticky="ew")
-        action_frame.grid_columnconfigure(2, weight=1)
+        action_frame.grid_columnconfigure(3, weight=1)
 
         self.start_btn = ctk.CTkButton(
             action_frame,
@@ -642,6 +673,18 @@ class StudioCourseSelectorGUI:
         )
         self.start_btn.grid(row=0, column=0, padx=(0, 12), pady=6, sticky="w")
 
+        self.rush_btn = ctk.CTkButton(
+            action_frame,
+            text="抢课模式",
+            command=self.start_rush_mode,
+            height=44,
+            fg_color=self.palette["danger"],
+            hover_color="#B91C1C",
+            text_color="#FFFFFF",
+            font=ctk.CTkFont(family="Fira Sans", size=15, weight="bold"),
+        )
+        self.rush_btn.grid(row=0, column=1, padx=(0, 12), pady=6, sticky="w")
+
         self.stop_btn = ctk.CTkButton(
             action_frame,
             text="停止选课",
@@ -654,7 +697,7 @@ class StudioCourseSelectorGUI:
             state="disabled",
             font=ctk.CTkFont(family="Fira Sans", size=15, weight="bold"),
         )
-        self.stop_btn.grid(row=0, column=1, padx=(0, 12), pady=6, sticky="w")
+        self.stop_btn.grid(row=0, column=2, padx=(0, 12), pady=6, sticky="w")
 
         self.status_label = ctk.CTkLabel(
             action_frame,
@@ -662,7 +705,7 @@ class StudioCourseSelectorGUI:
             font=self.fonts["body"],
             text_color=self.palette["text"],
         )
-        self.status_label.grid(row=0, column=2, padx=10, sticky="e")
+        self.status_label.grid(row=0, column=3, padx=10, sticky="e")
 
     def update_task_stats(self):
         total = len(self.task_list)
@@ -682,10 +725,98 @@ class StudioCourseSelectorGUI:
         with open("course_selector.log", "a", encoding="utf-8") as f:
             f.write(f"[{timestamp}] [{level}] {message}\n")
 
+    def fetch_cookies_via_browser(self):
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            messagebox.showerror(
+                "缺少依赖",
+                "未安装 playwright。\n请在命令行运行：\n  pip install playwright\n  playwright install chromium",
+            )
+            return
+
+        btn = self.fetch_cookies_btn
+        btn.configure(state="disabled", text="获取中...")
+        self.log("启动浏览器以获取 Cookies...", "INFO")
+
+        login_success_url = "portal.sufe.edu.cn"
+        elect_url = "https://eams.sufe.edu.cn/eams/stdElectCourse.action"
+        timeout_seconds = 300
+
+        def worker():
+            try:
+                with sync_playwright() as p:
+                    browser = p.chromium.launch(headless=False)
+                    context = browser.new_context()
+                    page = context.new_page()
+                    page.goto("https://login.sufe.edu.cn")
+
+                    deadline = time.time() + timeout_seconds
+                    logged_in = False
+                    while time.time() < deadline:
+                        try:
+                            if login_success_url in page.url:
+                                logged_in = True
+                                break
+                        except Exception:
+                            pass
+                        page.wait_for_timeout(500)
+
+                    if not logged_in:
+                        browser.close()
+                        self.root.after(0, lambda: self.log("获取 Cookies 超时（5分钟内未完成登录）", "WARN"))
+                        self.root.after(0, lambda: messagebox.showwarning("超时", "5分钟内未检测到登录完成，请重试"))
+                        return
+
+                    self.root.after(0, lambda: self.log("检测到登录成功，跳转到选课页面...", "SUCCESS"))
+                    page.goto(elect_url, wait_until="domcontentloaded")
+                    page.wait_for_timeout(1500)
+
+                    cookies = context.cookies()
+                    cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+
+                    profile_id = page.evaluate(
+                        "() => {"
+                        "  const btn = document.getElementById('electCourseButton');"
+                        "  if (!btn) return null;"
+                        "  const m = btn.getAttribute('onclick').match(/toStdElectCourse\\((\\d+)\\)/);"
+                        "  return m ? m[1] : null;"
+                        "}"
+                    )
+
+                    browser.close()
+
+                    self.root.after(0, lambda: self._fill_cookies(cookie_str, profile_id))
+            except Exception as exc:
+                err = str(exc)
+                self.root.after(0, lambda: self.log(f"获取 Cookies 失败: {err}", "ERROR"))
+                if "Executable doesn't exist" in err or "playwright install" in err.lower():
+                    msg = "Playwright 浏览器未安装。\n请运行：\n  playwright install chromium"
+                else:
+                    msg = f"获取 Cookies 失败: {err}"
+                self.root.after(0, lambda: messagebox.showerror("错误", msg))
+            finally:
+                self.root.after(0, lambda: btn.configure(state="normal", text="浏览器获取"))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _fill_cookies(self, cookie_str: str, profile_id: str | None = None):
+        self.cookies_entry.delete(0, "end")
+        self.cookies_entry.insert(0, cookie_str)
+        self.log("Cookies 已自动获取并填入", "SUCCESS")
+
+        if profile_id:
+            self.profile_id_entry.delete(0, "end")
+            self.profile_id_entry.insert(0, profile_id)
+            self.log(f"Profile ID 已自动获取并填入: {profile_id}", "SUCCESS")
+            messagebox.showinfo("成功", "Cookies 与 Profile ID 已自动获取并填入，请点击保存设置")
+        else:
+            self.log("未能从选课页面提取到 Profile ID，请手动填写", "WARN")
+            messagebox.showinfo("成功", "Cookies 已自动获取并填入；Profile ID 未能获取，请手动填写后保存设置")
+
     def save_settings(self):
         cookies = self.cookies_entry.get().strip()
         profile_id = self.profile_id_entry.get().strip()
-
         if not cookies:
             messagebox.showerror("错误", "请输入Cookies")
             return
@@ -828,6 +959,7 @@ class StudioCourseSelectorGUI:
 
         self.selector.is_running = True
         self.start_btn.configure(state="disabled")
+        self.rush_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
         self.set_status("运行中", self.palette["warn"])
 
@@ -841,9 +973,113 @@ class StudioCourseSelectorGUI:
     def stop_election(self):
         self.selector.is_running = False
         self.start_btn.configure(state="normal")
+        self.rush_btn.configure(state="normal")
         self.stop_btn.configure(state="disabled")
         self.set_status("已停止", self.palette["danger"])
         self.log("用户停止选课", "WARN")
+
+    def start_rush_mode(self):
+        if not self.selector.cookies:
+            messagebox.showerror("错误", "请先通过浏览器获取并保存 Cookies")
+            return
+
+        if not self.task_list:
+            messagebox.showerror("错误", "请先添加选课任务")
+            return
+
+        open_time_str = self.open_time_entry.get().strip()
+        if not open_time_str:
+            messagebox.showerror("错误", "请输入系统开放时间")
+            return
+
+        try:
+            open_dt = datetime.strptime(open_time_str, "%Y-%m-%d %H:%M")
+        except ValueError:
+            messagebox.showerror("错误", "开放时间格式错误，请按 YYYY-MM-DD HH:MM 填写")
+            return
+
+        if open_dt <= datetime.now():
+            messagebox.showerror("错误", "开放时间已过，请确认时间或直接点击开始选课")
+            return
+
+        self.selector.is_running = True
+        self.start_btn.configure(state="disabled")
+        self.rush_btn.configure(state="disabled")
+        self.stop_btn.configure(state="normal")
+        self.set_status("抢课中", self.palette["danger"])
+
+        self.log("=" * 50)
+        self.log(f"启动抢课模式，目标开放时间: {open_dt.strftime('%Y-%m-%d %H:%M')}", "SUCCESS")
+        self.log("=" * 50)
+
+        self.selector.elect_thread = threading.Thread(
+            target=self.run_rush_mode, args=(open_dt,), daemon=True
+        )
+        self.selector.elect_thread.start()
+
+    def run_rush_mode(self, open_dt):
+        elect_url = "https://eams.sufe.edu.cn/eams/stdElectCourse.action"
+        profile_pattern = re.compile(r"toStdElectCourse\((\d+)\)")
+
+        try:
+            last_warn_session = 0.0
+            while self.selector.is_running:
+                now = datetime.now()
+                remain = (open_dt - now).total_seconds()
+
+                if remain > 60:
+                    interval = 30.0
+                elif remain > 20:
+                    interval = 5.0
+                else:
+                    interval = 0.8
+
+                try:
+                    req = requests.get(
+                        elect_url, cookies=self.selector.cookies, timeout=10
+                    )
+                    text = req.text
+                    match = profile_pattern.search(text)
+                    if match:
+                        profile_id = match.group(1)
+                        self.root.after(0, lambda pid=profile_id: self._on_profile_acquired(pid))
+                        return
+
+                    if "login" in req.url.lower() or "login" in (req.text[:500]).lower():
+                        if time.time() - last_warn_session > 60:
+                            self.log("Cookies 可能已过期，建议重新获取", "WARN")
+                            last_warn_session = time.time()
+                except Exception as exc:
+                    self.log(f"刷新请求异常: {str(exc)}", "WARN")
+
+                if remain <= 0:
+                    self.log("已到开放时间，持续刷新等待 Profile ID...", "INFO")
+                else:
+                    self.log(f"距开放 {int(remain)}s，刷新中（间隔 {interval}s）", "INFO")
+
+                slept = 0.0
+                while slept < interval and self.selector.is_running:
+                    step = min(0.2, interval - slept)
+                    time.sleep(step)
+                    slept += step
+        except Exception as exc:
+            self.log(f"抢课模式异常: {str(exc)}", "ERROR")
+            self.root.after(0, lambda: self.start_btn.configure(state="normal"))
+            self.root.after(0, lambda: self.rush_btn.configure(state="normal"))
+            self.root.after(0, lambda: self.stop_btn.configure(state="disabled"))
+            self.root.after(0, lambda: self.set_status("错误", self.palette["danger"]))
+            self.root.after(
+                0, lambda: messagebox.showerror("错误", f"抢课模式异常: {str(exc)}")
+            )
+
+    def _on_profile_acquired(self, profile_id: str):
+        self.profile_id_entry.delete(0, "end")
+        self.profile_id_entry.insert(0, profile_id)
+        self.selector.profile_id = profile_id
+        self.log("=" * 50)
+        self.log(f"已获取 Profile ID: {profile_id}，自动开始选课", "SUCCESS")
+        self.log("=" * 50)
+        self.start_election()
     def run_election(self):
         try:
             while self.selector.is_running and self.task_list:
@@ -904,9 +1140,10 @@ class StudioCourseSelectorGUI:
                     self.log("所有任务已完成", "SUCCESS")
                     break
 
-                time.sleep(1)
+                time.sleep(0.5)
 
             self.root.after(0, lambda: self.start_btn.configure(state="normal"))
+            self.root.after(0, lambda: self.rush_btn.configure(state="normal"))
             self.root.after(0, lambda: self.stop_btn.configure(state="disabled"))
             self.root.after(0, lambda: self.set_status("就绪", self.palette["success"]))
 
@@ -920,6 +1157,7 @@ class StudioCourseSelectorGUI:
             with open("error_log.txt", "a", encoding="utf-8") as f:
                 f.write(f"\n[{datetime.now()}] {str(exc)}\n")
             self.root.after(0, lambda: self.start_btn.configure(state="normal"))
+            self.root.after(0, lambda: self.rush_btn.configure(state="normal"))
             self.root.after(0, lambda: self.stop_btn.configure(state="disabled"))
             self.root.after(0, lambda: self.set_status("错误", self.palette["danger"]))
             self.root.after(

@@ -10,6 +10,7 @@ dependencies = [
     "requests>=2.31.0",
     "pyinstaller>=6.17.0",
     "customtkinter>=5.2.2",
+    "playwright>=1.40.0",
 ]
 
 [project.optional-dependencies]

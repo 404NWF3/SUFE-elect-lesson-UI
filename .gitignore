@@ -38,3 +38,18 @@ Thumbs.db
 /.claude
 /.codex
 
+build/
+dist/
+*.spec
+__pycache__/
+*.log
+
+/.agent
+
+CLAUDE.md
+
+lesson_limit_debug.json
+stdElectCourse.action.html
+version_info.txt
+
+opencode.json
